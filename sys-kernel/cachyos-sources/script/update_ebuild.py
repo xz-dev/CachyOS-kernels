@@ -39,6 +39,90 @@ UPSTREAM_PACKAGES = [
 # has been validated. Keep that evidence explicit instead of treating every
 # directory entry as an automatically supported USE flag.
 VALIDATED_HIDDEN_FEATURES = {
+    "6.18.55": {
+        "bore-dev": {
+            "path": "sched-dev/0001-bore-cachy.patch",
+            "evidence": "BORE 7.0.0 applies after genpatches-6.18-63; source package and olddefconfig checked",
+        },
+        "pds": {
+            "path": "sched/0001-prjc-cachy.patch",
+            "evidence": "full PRJC plus 6.18.55 context rebase; release tarball does not contain PRJC",
+        },
+        "bmq-lfbmq": {
+            "path": "sched/0001-prjc-cachy-lfbmq.patch",
+            "evidence": "full LFBMQ patch plus 6.18.55 context rebase; prepare and Kconfig checked",
+        },
+        "handheld": {
+            "path": "misc/0001-handheld.patch",
+            "evidence": "6.18.55 context rebase preserves Surface HID and BETOP IDs; independent of scheduler",
+        },
+        "clang-polly": {
+            "path": "misc/0001-clang-polly.patch",
+            "evidence": "multi-patch stream applies sequentially; requires llvm-core/polly compiler plugin",
+        },
+        "poc-selector": {
+            "path": "misc/poc-selector.patch",
+            "evidence": "applies after genpatches-6.18-63 with EEVDF and BORE; not compatible with PRJC",
+        },
+        "governor-nap": {
+            "path": "misc/nap-governor.patch",
+            "evidence": "CPU idle governor (not cpufreq); optional package and Kconfig checked",
+        },
+        "governor-reflex": {
+            "path": "misc/reflex-governor.patch",
+            "evidence": "applies with fuzz=2; requires schedutil, incompatible with PRJC",
+        },
+        "acpi-call": {
+            "path": "misc/0001-acpi-call.patch",
+            "evidence": "standalone module applies after genpatches-6.18-63",
+        },
+        "aufs": {
+            "path": "misc/0001-aufs-6.18-merge-v20251208.patch",
+            "evidence": "applies with fuzz=2 after genpatches-6.18-63; AUFS_FS=m survives olddefconfig",
+        },
+        "cachyos-hardened": {
+            "path": "misc/0001-hardened.patch",
+            "evidence": "existing 6.18.55 hardened rebase retained; now includes real BORE sources",
+        },
+    },
+    "7.2.10": {
+        "bmq": {
+            "path": "sched/0001-prjc-cachy.patch",
+            "evidence": "same validated PRJC path as pds",
+        },
+        "deckify": {
+            "path": "misc/0001-handheld.patch",
+            "evidence": "asserted single amdgpu_dm reject; upstream YUV logic retained",
+        },
+        "handheld": {
+            "path": "misc/0001-handheld.patch",
+            "evidence": "same patch as deckify without imposing its config/scheduler",
+        },
+        "acpi-call": {
+            "path": "misc/0001-acpi-call.patch",
+            "evidence": "standalone module and deckify path checked after genpatches-7.2-11",
+        },
+        "bore-dev": {
+            "path": "sched-dev/0001-bore-cachy.patch",
+            "evidence": "BORE 7.0.0 applies at fuzz=0 after genpatches-7.2-11",
+        },
+        "pds": {
+            "path": "sched/0001-prjc-cachy.patch",
+            "evidence": "7.2.2 cpuset prerequisite, unchanged 7.2.9 rebase and 7.2.10 comment rebase pass",
+        },
+        "muqss": {
+            "path": "sched/0001-muqss-cachy.patch",
+            "evidence": "applies at fuzz=0 after 7.2.10 comment rebase; no cpuset rollback",
+        },
+        "aufs": {
+            "path": "misc/0001-aufs-7.2-merge-v20260914.patch",
+            "evidence": "prepare and AUFS_FS=m checked on 7.2.10 with genpatches-7.2-11",
+        },
+        "cachyos-hardened": {
+            "path": "misc/0001-hardened.patch",
+            "evidence": "exact fs/namei.c reject repaired by unchanged files/7.2.9 fixup",
+        },
+    },
     "7.2.2": {
         "muqss": {
             "path": "sched/0001-muqss-cachy.patch",
@@ -119,26 +203,31 @@ AUDIT_PATTERNS = {
     ),
     "bmq": (
         "sched/0001-prjc-cachy.patch",
-        "prjc-muqss-prereq.patch",
         "-e SCHED_ALT -e SCHED_BMQ",
     ),
     "pds": (
         "pds? (",
         "sched/0001-prjc-cachy.patch",
-        "prjc-muqss-prereq.patch",
         "-e SCHED_ALT -d SCHED_BMQ -e SCHED_PDS",
     ),
     "muqss": (
         "sched/0001-muqss-cachy.patch",
-        "prjc-muqss-prereq.patch",
         "-e SCHED_MUQSS -e MUQSS_IOTIME",
         "HZ_1000_NODEF",
         "PREEMPT_LAZY_NODEF",
         "HZ_PERIODIC_NODEF",
         "NO_HZ_IDLE_NODEF",
     ),
+    "bore-dev": ("sched-dev/0001-bore-cachy.patch", "use bore-dev", "-e SCHED_BORE"),
+    "bmq-lfbmq": ("sched/0001-prjc-cachy-lfbmq.patch", "use bmq-lfbmq", "-e SCHED_BMQ"),
+    "poc-selector": ("misc/poc-selector.patch", "-e SCHED_POC_SELECTOR"),
+    "handheld": ("misc/0001-handheld.patch", "use handheld", "HID_LENOVO_GO"),
+    "clang-polly": ("misc/0001-clang-polly.patch", "-e POLLY_CLANG", "llvm-core/polly"),
+    "governor-nap": ("misc/nap-governor.patch", "-e CPU_IDLE_GOV_NAP"),
+    "governor-reflex": ("misc/reflex-governor.patch", "-m CPU_FREQ_GOV_REFLEX"),
+    "acpi-call": ("misc/0001-acpi-call.patch", "-m ACPI_CALL"),
     "aufs": (
-        "misc/0001-aufs-7.2-merge-v20260907.patch",
+        "misc/0001-aufs-",
         "if use aufs; then",
         "-m AUFS_FS",
     ),
@@ -288,7 +377,8 @@ def audit_official_package_inventory(
             if pattern not in pkgbuild:
                 errors.append(f"{package}: upstream no longer matches: {pattern}")
 
-    if upstream_versions.get("linux-cachyos-hardened") == clean_target:
+    if (upstream_versions.get("linux-cachyos-hardened") == clean_target
+            and "cachyos-hardened" not in VALIDATED_HIDDEN_FEATURES.get(clean_target, {})):
         errors.append(
             "linux-cachyos-hardened now targets this version; audit applicability "
             "and add it to the explicit layered inventory or document exclusion"
@@ -317,9 +407,6 @@ def audit_hidden_patch_inventory(target_version, patch_paths, lts=False):
     clean_target = clean_version_helper(target_version)
     series = ".".join(clean_target.split(".")[:2])
     errors = []
-
-    if lts:
-        return errors
 
     for feature, details in VALIDATED_HIDDEN_FEATURES.get(clean_target, {}).items():
         path = f"{series}/{details['path']}"
@@ -355,11 +442,11 @@ def extract_iuse_flags(content):
 def get_expected_features(target_version, upstream_versions, lts=False):
     """Return explicit official and validated hidden features for the target."""
     clean_target = clean_version_helper(target_version)
-    expected = set()
+    expected = set(VALIDATED_HIDDEN_FEATURES.get(clean_target, {}))
 
     if lts:
         if upstream_versions.get("linux-cachyos-lts") == clean_target:
-            expected.add("eevdf")
+            expected.update({"eevdf", "bore", "bmq", "rt", "rt-bore", "cachyos-hardened"})
         return expected
 
     for package, features in OFFICIAL_PACKAGE_FEATURES.items():
@@ -380,7 +467,7 @@ def audit_feature_inventory(content, target_version, upstream_versions, lts=Fals
         if feature not in declared:
             errors.append(f"missing IUSE flag: {feature}")
             continue
-        if lts:
+        if lts and clean_version_helper(target_version) not in VALIDATED_HIDDEN_FEATURES:
             continue
         for pattern in AUDIT_PATTERNS[feature]:
             if pattern not in content:
@@ -397,7 +484,14 @@ def audit_feature_inventory(content, target_version, upstream_versions, lts=Fals
         for features in VALIDATED_HIDDEN_FEATURES.values()
         for feature in features
     }
-    for feature in sorted((declared & hidden_features) - validated_hidden):
+    official_features = set()
+    if lts:
+        official_features.update({"eevdf", "bore", "bmq", "rt", "rt-bore", "cachyos-hardened"})
+    else:
+        for package, features in OFFICIAL_PACKAGE_FEATURES.items():
+            if upstream_versions.get(package) == clean_version_helper(target_version):
+                official_features.update(features)
+    for feature in sorted((declared & hidden_features) - validated_hidden - official_features):
         errors.append(
             f"{feature}: declared without exact-version applicability evidence"
         )
