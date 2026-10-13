@@ -11,6 +11,10 @@ from ci_matrix_cases import OPTIONAL_VARIANT_FLAGS, usable_cases
 
 ROOT = Path(__file__).resolve().parents[1]
 workflow = (ROOT / ".github/workflows/ebuild-test.yml").read_text()
+# A checker-only change must select the latest source version, not versions=[].
+changed_pattern = re.search(r'WORKFLOW_CHANGED=.*?grep -E "([^"]+)"', workflow, re.S).group(1)
+assert re.search(changed_pattern, "tests/test-source-features.py"), "Checker change skips source tests"
+assert not re.search(changed_pattern, "README.md")
 # ponytail: literal quoted matrix only; use a YAML parser if expressions are added.
 matrix = workflow.split("        use_flags:\n", 1)[1].split("    container:", 1)[0]
 cases = re.findall(r'^\s+- "([^"]*)"', matrix, re.MULTILINE)

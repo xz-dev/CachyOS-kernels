@@ -153,7 +153,7 @@ jobs:
         
         # Also check if the workflow itself was modified
         WORKFLOW_CHANGED=$(git diff --no-renames --name-only "$BASE_SHA" HEAD | \
-          grep -E "^(\.github/workflows/ebuild-(test(-musl-llvm)?|binpkg-cleanup)\.yml|tests/(ci-.*\.sh|ci_matrix_cases\.py|test-ci-binpkg-lifecycle\.py))$" || true)
+          grep -E "^(\.github/workflows/ebuild-(test(-musl-llvm)?|binpkg-cleanup)\.yml|tests/(ci-.*\.sh|ci_matrix_cases\.py|test-ci-binpkg-lifecycle\.py|test-source-features\.py))$" || true)
         
         if [ -z "$NEW_EBUILDS" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ -z "$WORKFLOW_CHANGED" ]; then
           echo "::notice::No new or modified ebuilds detected, skipping tests"
@@ -254,6 +254,7 @@ jobs:
           - "kcfi"
           - "deckify"
           - "deckify kcfi"
+          - "deckify acpi-call"
           - "aufs"
           - "governor-nap governor-reflex poc-selector acpi-call"
           - "clang-polly"

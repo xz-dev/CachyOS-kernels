@@ -72,11 +72,13 @@ def check(ebuild: Path, tree: Path, overrides: str) -> None:
         ('governor-nap', 'CPU_IDLE_GOV_NAP', 'drivers/cpuidle/governors/nap/nap.c'),
         ('governor-reflex', 'CPU_FREQ_GOV_REFLEX', 'drivers/cpufreq/cpufreq_reflex.c'),
         ('aufs', 'AUFS_FS', 'fs/aufs/Kconfig'),
-        ('acpi-call', 'ACPI_CALL', 'drivers/platform/x86/acpi_call.c'),
     ]:
         if flag in enabled:
             expect(symbol, 'y' if flag == 'governor-nap' else 'm')
             exists(path)
+    if enabled & {'deckify', 'acpi-call'}:
+        expect('ACPI_CALL', 'y' if 'deckify' in enabled else 'm')
+        exists('drivers/platform/x86/acpi_call.c')
     for flag, symbols in {
         'adios': ['MQ_IOSCHED_ADIOS'],
         'vhba': ['VHBA'], 'v4l2loopback': ['V4L2_LOOPBACK'],
