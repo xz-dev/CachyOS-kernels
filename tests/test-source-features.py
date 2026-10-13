@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assert installed/prepared CachyOS source features, before or after olddefconfig.
+"""Assert prepared CachyOS source/dist-kernel features, before or after olddefconfig.
 
 Usage: python3 tests/test-source-features.py EBUILD TREE 'USE overrides'
 Run make olddefconfig separately to also prove Kconfig dependency resolution.
@@ -25,6 +25,9 @@ def check(ebuild: Path, tree: Path, overrides: str) -> None:
         else:
             enabled.add(flag)
     required = re.search(r'^REQUIRED_USE="([^"]*)"', source, re.M).group(1)
+    # The eclass validates LLVM slot selection; this checker tests source features.
+    required = required.replace('${LLVM_REQUIRED_USE}', '')
+    required = re.sub(r'!?llvm_slot_\d+', '', required)
     assert check_required_use(required, enabled, available.__contains__, eapi='8')
     config = dict(re.findall(r'^CONFIG_(\w+)=(.*)$', (tree / '.config').read_text(), re.M))
 
@@ -40,8 +43,8 @@ def check(ebuild: Path, tree: Path, overrides: str) -> None:
         exists('zfs/META')
         exists('kernel-build.sh')
     for flag in enabled:
-        if flag.startswith('hz-ticks-'):
-            expect('HZ', flag.removeprefix('hz-ticks-'))
+        if flag.replace('_', '-').startswith('hz-ticks-'):
+            expect('HZ', flag.replace('_', '-').removeprefix('hz-ticks-'))
     if 'server' in available:
         expect('CACHY', 'n' if 'server' in enabled else 'y')
     for selector, symbol, path in [
@@ -101,7 +104,7 @@ def check(ebuild: Path, tree: Path, overrides: str) -> None:
     if enabled & {'handheld', 'deckify'}:
         for symbol in ['MFD_STEAMDECK', 'HID_LENOVO_GO', 'ZOTAC_ZONE_HID']:
             expect(symbol, 'm')
-        expect('HID_MSI_CLAW' if ebuild.name.startswith('cachyos-sources-6.18.') else 'HID_MSI', 'm')
+        expect('HID_MSI_CLAW' if '-6.18.' in ebuild.name else 'HID_MSI', 'm')
         exists('drivers/mfd/steamdeck.c')
     if 'adios-default' in enabled:
         expect('MQ_IOSCHED_DEFAULT_ADIOS', 'y')
@@ -114,6 +117,18 @@ def check(ebuild: Path, tree: Path, overrides: str) -> None:
     ]:
         if flag in available:
             expect(symbol, default if flag in enabled else '0')
+    if ebuild.name.startswith('cachyos-kernel-'):
+        expect('LOCALVERSION', '"-cachyos-dist"')
+        expect('MODPROBE_PATH', '"/sbin/modprobe"')
+        for flag, symbol in [
+            ('llvm-lto-thin', 'LTO_CLANG_THIN'),
+            ('llvm-lto-thin-dist', 'LTO_CLANG_THIN_DIST'),
+            ('llvm-lto-full', 'LTO_CLANG_FULL'),
+            ('llvm-lto-none', 'LTO_NONE'),
+            ('autofdo', 'AUTOFDO_CLANG'), ('propeller', 'PROPELLER_CLANG'),
+        ]:
+            if flag in enabled:
+                expect(symbol, 'y')
     assert not list(tree.rglob('*.rej')), 'unhandled patch rejects'
     assert not (tree / 'tools/testing/selftests/tc-testing/action-ebpf').exists()
     print(f'PASS: {ebuild.name}: source/config assertions USE={overrides!r}')
