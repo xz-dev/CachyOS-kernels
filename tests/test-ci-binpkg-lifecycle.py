@@ -69,8 +69,27 @@ printf 'PACKAGES: 0\\n' > "$CI_BINPKG_OUT/pkgdir/Packages"
 ''')
     # Snapshot creation is checked separately; no reading real /etc in this test.
     (tools / "tar").write_text('#!/usr/bin/env bash\nexit 0\n')
+    (tools / "getuto").write_text('#!/usr/bin/env bash\nexit 0\n')
     for path in tools.iterdir():
         path.chmod(0o755)
+
+    # User patches must not apply a 7.x-only workload fix to stable perf 6.19.
+    checkout = temp / "checkout"
+    checkout.mkdir()
+    setup = temp / "setup.sh"
+    setup.write_text((ROOT / "tests/ci-portage-setup.sh").read_text()
+                     .replace("/etc/portage", str(config))
+                     .replace("/var/db/repos/cachyos-overlay", str(temp / "overlay")))
+    result = run(["bash", str(setup), "musl", str(checkout)], env=env)
+    assert result.returncode == 0, result.stdout
+    patches = config / "patches/dev-util"
+    assert not (patches / "perf").exists(), "Unversioned patch breaks stable perf"
+    for perf in ("perf-7.1", "perf-7.2"):
+        assert (patches / perf / "perf-musl-code-with-type-uint.patch").is_file()
+    assert not (patches / "perf-6.19.12").exists()
+    calls.write_text("")
+    print("PASS: musl perf workaround is scoped to affected 7.1/7.2, not stable 6.19")
+
     version = sorted((ROOT / "sys-kernel/cachyos-sources").glob("*.ebuild"))[-1].stem.removeprefix("cachyos-sources-")
     versions = temp / "versions"
     versions.write_text(version + "\n")

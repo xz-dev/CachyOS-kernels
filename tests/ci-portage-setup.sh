@@ -37,9 +37,10 @@ EOF
 	emerge --sync -q
 
 	if [[ "${ABI}" == musl ]]; then
-		# perf's Rust workload uses a glibc-only typedef.
-		mkdir -p /etc/portage/patches/dev-util/perf
-		cat > /etc/portage/patches/dev-util/perf/perf-musl-code-with-type-uint.patch <<'PATCHEOF'
+		# Only perf 7.1/7.2 have this Rust workload; stable 6.19 does not.
+		for PERF_VERSION in 7.1 7.2; do
+			mkdir -p "/etc/portage/patches/dev-util/perf-${PERF_VERSION}"
+			cat > "/etc/portage/patches/dev-util/perf-${PERF_VERSION}/perf-musl-code-with-type-uint.patch" <<'PATCHEOF'
 --- a/tests/workloads/code_with_type.c
 +++ b/tests/workloads/code_with_type.c
 @@ -6,7 +6,7 @@
@@ -51,6 +52,7 @@ EOF
 
  static volatile sig_atomic_t done;
 PATCHEOF
+		done
 	fi
 fi
 
