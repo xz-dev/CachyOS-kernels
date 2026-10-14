@@ -1,410 +1,112 @@
 name: Ebuild Merge Test
 
+# Probe-only workflow: never include this file in the production DNS-retry fix.
 on:
-  push:
-    branches: [ main, master ]
-    paths:
-      - 'tests/test-source-features.py'
-      - 'tests/test-optional-feature-inventory.py'
-      - 'sys-kernel/cachyos-sources/**'
-      - 'sys-kernel/cachyos-kernel/**'
-      - 'sys-kernel/cachyos-kernel-bin/**'
-      - 'virtual/dist-kernel/**'
-      - '.github/workflows/ebuild-test.yml'
-      - 'tests/test-ci-use-matrix.py'
-      - 'tests/test-thp-defaults.py'
-      - 'tests/test-bin-headers-install.sh'
-      - 'tests/ci-portage-setup.sh'
-      - 'tests/ci-binpkg-producer.sh'
-      - 'tests/ci-binpkg-consumer.sh'
-      - 'tests/ci_matrix_cases.py'
-      - 'tests/test-ci-binpkg-lifecycle.py'
-      - '.github/workflows/ebuild-binpkg-cleanup.yml'
-  pull_request:
-    branches: [ main, master ]
-    paths:
-      - 'tests/test-source-features.py'
-      - 'tests/test-optional-feature-inventory.py'
-      - 'sys-kernel/cachyos-sources/**'
-      - 'sys-kernel/cachyos-kernel/**'
-      - 'sys-kernel/cachyos-kernel-bin/**'
-      - 'virtual/dist-kernel/**'
-      - '.github/workflows/ebuild-test.yml'
-      - 'tests/test-ci-use-matrix.py'
-      - 'tests/test-thp-defaults.py'
-      - 'tests/test-bin-headers-install.sh'
-      - 'tests/ci-portage-setup.sh'
-      - 'tests/ci-binpkg-producer.sh'
-      - 'tests/ci-binpkg-consumer.sh'
-      - 'tests/ci_matrix_cases.py'
-      - 'tests/test-ci-binpkg-lifecycle.py'
-      - '.github/workflows/ebuild-binpkg-cleanup.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  validate-dist-kernel-links:
-    runs-on: ubuntu-latest
-    container:
-      image: docker.io/gentoo/stage3:latest
-      options: --privileged
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Validate CI USE matrix against ebuild requirements
-      run: python3 tests/test-ci-use-matrix.py
-
-    - name: Validate optional feature inventory and conflicts
-      run: python3 tests/test-optional-feature-inventory.py
-
-    - name: Validate binary dependency lifecycle
-      run: python3 tests/test-ci-binpkg-lifecycle.py
-
-    - name: Validate THP defaults and explicit overrides
-      run: python3 tests/test-thp-defaults.py
-
-    - name: Validate dist-kernel dependency resolution with emerge --pretend
-      shell: bash
-      run: |
-        set -euo pipefail
-
-        # Sync Gentoo repository snapshot
-        for i in 1 2 3; do
-          emerge-webrsync -q && break || sleep 10
-        done
-
-        # Configure local overlay
-        mkdir -p /var/db/repos/cachyos-overlay /etc/portage/repos.conf /etc/portage/package.use
-        cp -a ./. /var/db/repos/cachyos-overlay/
-        cat > /etc/portage/repos.conf/cachyos.conf <<EOF
-        [CachyOS-kernels]
-        location = /var/db/repos/cachyos-overlay
-        auto-sync = no
-        priority = 50
-        EOF
-
-        echo 'ACCEPT_KEYWORDS="~amd64"' >> /etc/portage/make.conf
-        cat > /etc/portage/package.use/kernel <<EOF
-        >=dev-util/perf-7.2 libpfm
-        >=sys-kernel/installkernel-70 dracut
-        EOF
-
-        echo "=== Validating sys-kernel/cachyos-kernel ebuilds ==="
-        for ebuild in /var/db/repos/cachyos-overlay/sys-kernel/cachyos-kernel/cachyos-kernel-*.ebuild; do
-          pkg=$(basename "$ebuild" .ebuild)
-          echo "Testing dependency resolution for =sys-kernel/${pkg}"
-          emerge --pretend --verbose "=sys-kernel/${pkg}"
-        done
-
-        echo "=== Validating virtual/dist-kernel ebuilds ==="
-        for ebuild in /var/db/repos/cachyos-overlay/virtual/dist-kernel/dist-kernel-*.ebuild; do
-          pkg=$(basename "$ebuild" .ebuild)
-          echo "Testing dependency resolution for =virtual/${pkg}"
-          emerge --pretend --verbose "=virtual/${pkg}"
-        done
-
-        echo "=== Validating sys-kernel/cachyos-kernel-bin ebuilds ==="
-        for ebuild in /var/db/repos/cachyos-overlay/sys-kernel/cachyos-kernel-bin/cachyos-kernel-bin-*.ebuild; do
-          pkg=$(basename "$ebuild" .ebuild)
-          echo "Testing dependency resolution for =sys-kernel/${pkg}"
-          emerge --pretend --verbose "=sys-kernel/${pkg}"
-        done
-
-    - name: Issue 57 regression - bin kernel installs real build tree
-      shell: bash
-      run: |
-        set -euo pipefail
-        # Install eselect in the Gentoo container for ROOT-scoped checks.
-        emerge --quiet --verbose app-admin/eselect
-        # The test sources the real ebuild src_install functions against
-        # synthetic fixture packages and asserts the installed image has a
-        # usable kernel build tree. No distfile downloads or kernel builds.
-        bash tests/test-bin-headers-install.sh
-
   detect-versions:
     runs-on: ubuntu-latest
     outputs:
-      versions: ${{ steps.detect.outputs.versions }}
       image: ${{ steps.image.outputs.image }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Need full history for git diff
-    
-    - name: Detect new ebuild versions
-      id: detect
-      run: |
-        # Compare the complete pushed range so multi-commit pushes do not miss ebuilds.
-        if [ "${{ github.event_name }}" = "pull_request" ]; then
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-        elif [ "${{ github.event_name }}" = "push" ] &&
-             [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ] &&
-             git cat-file -e "${{ github.event.before }}^{commit}"; then
-          BASE_SHA="${{ github.event.before }}"
-        else
-          BASE_SHA="HEAD~1"
-        fi
-        
-        # Find new or modified ebuilds
-        NEW_EBUILDS=$(git diff --no-renames --name-only --diff-filter=AM "$BASE_SHA" HEAD | \
-          grep -E "^sys-kernel/cachyos-sources/cachyos-sources-.*\.ebuild$" | \
-          grep -v "9999" | \
-          sed -E 's|^sys-kernel/cachyos-sources/cachyos-sources-(.+)\.ebuild$|\1|' | \
-          sort -V || true)
-        
-        # Also check if the workflow itself was modified
-        WORKFLOW_CHANGED=$(git diff --no-renames --name-only "$BASE_SHA" HEAD | \
-          grep -E "^(\.github/workflows/ebuild-(test(-musl-llvm)?|binpkg-cleanup)\.yml|tests/(ci-.*\.sh|ci_matrix_cases\.py|test-ci-binpkg-lifecycle\.py|test-source-features\.py))$" || true)
-        
-        if [ -z "$NEW_EBUILDS" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ -z "$WORKFLOW_CHANGED" ]; then
-          echo "::notice::No new or modified ebuilds detected, skipping tests"
-          echo "versions=[]" >> "$GITHUB_OUTPUT"
-        else
-          if [ -z "$NEW_EBUILDS" ]; then
-            echo "Workflow changed or manual dispatch, testing latest version"
-            LATEST=$(find sys-kernel/cachyos-sources -name "cachyos-sources-*.ebuild" | \
-              grep -v "9999" | \
-              sed -E 's|.*cachyos-sources-(.+)\.ebuild$|\1|' | \
-              sort -V | tail -1)
-            VERSIONS_JSON="[\"$LATEST\"]"
-          else
-            # Convert to JSON array
-            VERSIONS_JSON="["
-            first=true
-            for version in $NEW_EBUILDS; do
-              if [ "$first" = true ]; then
-                VERSIONS_JSON="${VERSIONS_JSON}\"$version\""
-                first=false
-              else
-                VERSIONS_JSON="${VERSIONS_JSON},\"$version\""
-              fi
-            done
-            VERSIONS_JSON="${VERSIONS_JSON}]"
-          fi
-          
-          echo "Versions to test: $VERSIONS_JSON"
-          echo "versions=$VERSIONS_JSON" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Resolve immutable container image for this run
-      id: image
-      if: steps.detect.outputs.versions != '[]'
-      run: |
-        docker pull docker.io/gentoo/stage3:latest
-        IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/gentoo/stage3:latest)
-        echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Resolve immutable container image for this run
+        id: image
+        run: |
+          docker pull docker.io/gentoo/stage3:latest
+          IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/gentoo/stage3:latest)
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
   build-binpkgs:
     needs: detect-versions
-    if: needs.detect-versions.outputs.versions != '[]'
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.detect-versions.outputs.image }}
       options: --privileged
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Setup Portage repository
-      shell: bash
-      run: bash tests/ci-portage-setup.sh glibc "$PWD"
-
-    - name: Build uncovered dependency binpkgs once per run
-      shell: bash
-      run: |
-        set -euo pipefail
-        printf '%s\n' '${{ needs.detect-versions.outputs.versions }}' | \
-          python3 -c 'import json,sys; [print(v) for v in json.load(sys.stdin)]' > /tmp/versions.txt
-        bash tests/ci-binpkg-producer.sh /tmp/versions.txt glibc
-
-    - name: Upload local binpkg artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ci-binpkgs-glibc-${{ github.run_id }}-${{ github.run_attempt }}
-        path: /ci-binpkg/
-        if-no-files-found: error
-        retention-days: 1
-        compression-level: 0
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup producer and verify effective HTTPS fetch policy
+        shell: bash
+        run: |
+          bash tests/ci-portage-setup.sh glibc "$PWD"
+          python3 - <<'PY'
+          import os, portage, shlex
+          settings = portage.config()
+          for name in ("FETCHCOMMAND", "RESUMECOMMAND"):
+              value = settings.get(name + "_HTTPS") or settings[name]
+              print(f"{name}={value}")
+              args = shlex.split(value)
+              assert os.path.basename(args[0]) == "wget"
+              assert "--inet4-only" in args and "--retry-on-host-error" in args
+              assert args[args.index("-t") + 1] == "3"
+          PY
+          grep -Fx 'verify-signature = true' /etc/portage/binrepos.conf/gentoo.conf
+      - name: Build uncovered dependency binpkgs for the single HZ case
+        shell: bash
+        run: |
+          printf '%s\n' '7.2.10' > /var/tmp/ci-dns-versions.txt
+          bash tests/ci-binpkg-producer.sh /var/tmp/ci-dns-versions.txt glibc
+          test "$(cat /ci-binpkg/cases)" = '7.2.10|hz-ticks-100 -hz-ticks-1000'
+      - name: Upload local binpkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-binpkgs-glibc-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /ci-binpkg/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
   test:
     needs: [detect-versions, build-binpkgs]
-    if: needs.detect-versions.outputs.versions != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 20
       matrix:
-        version: ${{ fromJson(needs.detect-versions.outputs.versions) }}
-        # Comprehensive test matrix based on all USE flags in the ebuild
+        version: ["7.2.10"]
         use_flags:
-          # Default USE flags (scheduler and LTO defaults vary by version)
-          - ""
-          
-          # === Scheduler Tests (mutually exclusive) ===
-          - "bmq -bore -eevdf"
-          - "bmq-lfbmq -bore -eevdf"
-          - "bore-dev -bore -eevdf"
-          - "pds -bore -eevdf"
-          - "muqss -bore -eevdf"
-          - "cachyos-hardened -bore -eevdf llvm-lto-none -llvm-lto-thin -autofdo -propeller"
-          - "eevdf -bore"
-          - "rt -bore -eevdf"
-          - "rt-bore -bore -eevdf"
-          
-          # === Special Configurations ===
-          - "kcfi"
-          - "deckify"
-          - "deckify kcfi"
-          - "deckify acpi-call"
-          - "aufs"
-          - "governor-nap governor-reflex poc-selector acpi-call"
-          - "governor-nap governor-reflex"
-          - "clang-polly"
-          - "sched-ext-peek"
-          - "acpi-call"
-          - "handheld"
-          - "server"
-          - "adios-default amd-private-color -v4l2loopback -vhba -apple-t2"
-          - "hda-aw88399 -hda-max98390 -adios"
-          
-          # === Hz Tick Rate Tests (mutually exclusive) ===
           - "hz-ticks-100 -hz-ticks-1000"
-          - "hz-ticks-250 -hz-ticks-1000"
-          - "hz-ticks-300 -hz-ticks-1000"
-          - "hz-ticks-500 -hz-ticks-1000"
-          - "hz-ticks-600 -hz-ticks-1000"
-          - "hz-ticks-750 -hz-ticks-1000"
-          
-          # === Tick Type Tests (mutually exclusive) ===
-          - "tickrate-periodic -tickrate-full"
-          - "tickrate-idle -tickrate-full"
-          
-          # === Preemption Mode Tests ===
-          - "preempt-lazy -preempt-full"
-          
-          # === Compiler Optimization Tests ===
-          - "o3"  # Default
-          - "os -o3"
-          - "debug -o3"
-          
-          # === Network and Performance ===
-          - "bbr3"  # Default
-          - "-bbr3"
-          - "per-gov"  # Default
-          - "-per-gov"
-          
-          # === Memory Management ===
-          - "hugepage-always"  # Explicit override (default is variant-dependent)
-          - "hugepage-madvise -hugepage-always"
-          
-          # === CPU Architecture Optimization ===
-          - "mnative"  # Default
-          - "mgeneric -mnative"
-          - "mgeneric-v1 -mnative"
-          - "mgeneric-v2 -mnative"
-          - "mgeneric-v3 -mnative"
-          - "mgeneric-v4 -mnative"
-          - "mzen4 -mnative"
-          
-          # === LLVM LTO Tests (mutually exclusive) ===
-          - "llvm-lto-thin-dist -llvm-lto-thin -llvm-lto-full -llvm-lto-none"
-          - "llvm-lto-thin -llvm-lto-thin-dist -llvm-lto-full -llvm-lto-none"
-          - "llvm-lto-full -llvm-lto-thin -llvm-lto-thin-dist -llvm-lto-none -propeller"
-          
-          # === Advanced Optimization ===
-          - "autofdo propeller llvm-lto-thin-dist -llvm-lto-thin -llvm-lto-full -llvm-lto-none"  # autofdo requires LTO, propeller conflicts with full LTO
-          - "-autofdo -propeller"
-          - "autofdo llvm-lto-thin -propeller -llvm-lto-thin-dist -llvm-lto-full -llvm-lto-none"
-          - "propeller llvm-lto-thin-dist -llvm-lto-thin -llvm-lto-full -llvm-lto-none"  # propeller without autofdo
-          - "autofdo llvm-lto-thin -llvm-lto-thin-dist -llvm-lto-full -llvm-lto-none"
-          - "autofdo llvm-lto-full -propeller -llvm-lto-thin -llvm-lto-thin-dist -llvm-lto-none"  # propeller conflicts with full LTO
-          
-          # === ZFS Support ===
-          - "kernel-builtin-zfs"
-          
-          # === Complex Real-world Combinations ===
-          # Performance gaming setup
-          - "bmq o3 bbr3 hz-ticks-1000 per-gov mzen4 -bore -eevdf -mnative"
-          # Low latency audio workstation
-          - "rt hz-ticks-1000 tickrate-full -bore -eevdf"
-          # Power saving laptop
-          - "eevdf os hz-ticks-250 tickrate-idle -per-gov -bore -tickrate-full -hz-ticks-1000 -o3"
-          # Steam Deck optimized (deckify requires a BORE-family scheduler)
-          - "deckify hz-ticks-500 o3 -hz-ticks-1000"
-          # Development workstation with debugging
-          - "debug eevdf tickrate-periodic -o3 -bore -tickrate-full"
-          # Maximum optimization build
-          - "bore o3 bbr3 autofdo propeller llvm-lto-thin mzen4 -eevdf -llvm-lto-thin-dist -llvm-lto-full -llvm-lto-none -mnative"
-          # Conservative stable build
-          - "eevdf mgeneric os -bore -o3 -autofdo -propeller -mnative"
-          # RT audio production
-          - "rt-bore hz-ticks-1000 o3 -bore -eevdf"
-          # Virtual machine host
-          - "eevdf hugepage-madvise tickrate-idle mgeneric-v3 -bore -hugepage-always -tickrate-full -mnative"
-          # Container host optimized
-          - "bore per-gov bbr3 hz-ticks-300 -eevdf -hz-ticks-1000"
-          # Compile server optimized
-          - "bmq llvm-lto-full os mgeneric-v4 -bore -eevdf -o3 -propeller -llvm-lto-thin -llvm-lto-thin-dist -llvm-lto-none -mnative"
-          # Desktop with AutoFDO profiling
-          - "bore autofdo llvm-lto-thin hz-ticks-1000 o3 -eevdf -llvm-lto-thin-dist -llvm-lto-full -llvm-lto-none"
-          # Maximum compatibility
-          - "eevdf mgeneric -bore -autofdo -propeller -kcfi -mnative"
-          # KCFI security feature with RT
-          - "kcfi rt-bore -bore -eevdf"
-          
     container:
       image: ${{ needs.detect-versions.outputs.image }}
       options: --privileged
-      
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Download local binpkg artifact
-      id: download
-      continue-on-error: true
-      uses: actions/download-artifact@v4
-      with:
-        name: ci-binpkgs-glibc-${{ github.run_id }}-${{ github.run_attempt }}
-        path: /ci-binpkg
-
-    - name: Require current attempt artifact
-      if: steps.download.outcome != 'success'
-      run: |
-        echo '::error::Dependency artifact unavailable. Artifacts are deleted after each run; use Re-run all jobs, not failed jobs only.'
-        exit 1
-
-    - name: Restore producer Portage snapshot
-      shell: bash
-      run: bash tests/ci-portage-setup.sh glibc "$PWD" /ci-binpkg
-
-    - name: Consume binary deps and merge source ebuild
-      shell: bash
-      run: |
-        set -euo pipefail
-        EBUILD_PATH="sys-kernel/cachyos-sources/cachyos-sources-${{ matrix.version }}.ebuild"
-        USE_FLAGS="${{ matrix.use_flags }}"
-
-        # Scheduler and variant flags can be version-dependent. Skip a matrix
-        # case when its positive selector is absent instead of creating an
-        # invalid fallback build.
-        read -r -a USE_FLAG_WORDS <<< "${USE_FLAGS}"
-        for OPTIONAL_FLAG in bmq bmq-lfbmq deckify bore-dev pds muqss cachyos-hardened server aufs handheld acpi-call poc-selector governor-nap governor-reflex clang-polly sched-ext-peek adios-default hda-aw88399; do
-          if printf '%s\n' "${USE_FLAG_WORDS[@]}" | grep -Fxq "${OPTIONAL_FLAG}" &&
-             ! grep -Eq "(^|[[:space:]])\\+?${OPTIONAL_FLAG}([[:space:]]|$)" "${EBUILD_PATH}"; then
-            echo "::notice::Skipping ${USE_FLAGS}: unsupported by cachyos-sources-${{ matrix.version }}"
-            exit 0
-          fi
-        done
-
-        bash tests/ci-binpkg-consumer.sh /ci-binpkg "${{ matrix.version }}" "${USE_FLAGS}"
-        KERNEL_VERSION="${{ matrix.version }}"
-        KERNEL_PV="${KERNEL_VERSION%-r*}"
-        python3 tests/test-source-features.py "${EBUILD_PATH}" \
-          "/usr/src/linux-${KERNEL_PV}-cachyos${KERNEL_VERSION#${KERNEL_PV}}" "${USE_FLAGS}"
-
-        echo "✓ Successfully installed cachyos-sources-${{ matrix.version }} with USE='${{ matrix.use_flags }}'"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Download current producer artifact
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-binpkgs-glibc-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /ci-binpkg
+      - name: Require current attempt artifact
+        if: steps.download.outcome != 'success'
+        run: |
+          echo '::error::Current-attempt producer artifact is required; rerun all probe jobs.'
+          exit 1
+      - name: Restore snapshot and verify inherited HTTPS fetch policy
+        shell: bash
+        run: |
+          bash tests/ci-portage-setup.sh glibc "$PWD" /ci-binpkg
+          python3 - <<'PY'
+          import os, portage, shlex
+          settings = portage.config()
+          for name in ("FETCHCOMMAND", "RESUMECOMMAND"):
+              value = settings.get(name + "_HTTPS") or settings[name]
+              print(f"{name}={value}")
+              args = shlex.split(value)
+              assert os.path.basename(args[0]) == "wget"
+              assert "--inet4-only" in args and "--retry-on-host-error" in args
+              assert args[args.index("-t") + 1] == "3"
+          PY
+          grep -Fx 'verify-signature = true' /etc/portage/binrepos.conf/gentoo.conf
+      - name: Consume binary dependencies and verify HZ source package
+        shell: bash
+        run: |
+          bash tests/ci-binpkg-consumer.sh /ci-binpkg "${{ matrix.version }}" "${{ matrix.use_flags }}"
+          python3 tests/test-source-features.py \
+            "sys-kernel/cachyos-sources/cachyos-sources-${{ matrix.version }}.ebuild" \
+            "/usr/src/linux-${{ matrix.version }}-cachyos" "${{ matrix.use_flags }}"
