@@ -40,6 +40,15 @@ UPSTREAM_PACKAGES = [
 # directory entry as an automatically supported USE flag.
 VALIDATED_HIDDEN_FEATURES = {
     "6.18.55": {
+        "sched-ext-peek": {
+            "commits": (
+                "b99db259aa4e75b3051e0b4ea464c08700829d3b",
+                "83659f4458c702385efc657ff678cdcec74d7342",
+                "2f15c2b511c5322cefafbcd49ab496eeaed9c045",
+                "f853a289756a2d3c6addd17dbe40c24b95082ad0",
+            ),
+            "evidence": "6.18/sched-ext branch: four published commits, release-context compat rebase; PRJC disables SCHED_CLASS_EXT",
+        },
         "bore-dev": {
             "path": "sched-dev/0001-bore-cachy.patch",
             "evidence": "BORE 7.0.0 applies after genpatches-6.18-63; source package and olddefconfig checked",
@@ -86,6 +95,21 @@ VALIDATED_HIDDEN_FEATURES = {
         },
     },
     "7.2.10": {
+        "clang-polly": {
+            "series": "6.18",
+            "path": "misc/0001-clang-polly.patch",
+            "evidence": "dependent stream applies sequentially at fuzz=0; matching LLVMPolly plugin required",
+        },
+        "governor-nap": {
+            "series": "6.18",
+            "path": "misc/nap-governor.patch",
+            "evidence": "cross-series patch applies at fuzz=0; CPU_IDLE_GOV_NAP survives olddefconfig",
+        },
+        "governor-reflex": {
+            "series": "6.18",
+            "path": "misc/reflex-governor.patch",
+            "evidence": "7.2.10 context and policy-pointer API rebase; requires schedutil, excludes PRJC and MuQSS",
+        },
         "bmq": {
             "path": "sched/0001-prjc-cachy.patch",
             "evidence": "same validated PRJC path as pds",
@@ -222,6 +246,7 @@ AUDIT_PATTERNS = {
     "bmq-lfbmq": ("sched/0001-prjc-cachy-lfbmq.patch", "use bmq-lfbmq", "-e SCHED_BMQ"),
     "poc-selector": ("misc/poc-selector.patch", "-e SCHED_POC_SELECTOR"),
     "handheld": ("misc/0001-handheld.patch", "use handheld", "HID_LENOVO_GO"),
+    "sched-ext-peek": ("if use sched-ext-peek; then", "-e SCHED_CLASS_EXT", "6.18.55-sched-ext-peek-rebase.patch"),
     "clang-polly": ("misc/0001-clang-polly.patch", "-e POLLY_CLANG", "llvm-core/polly"),
     "governor-nap": ("misc/nap-governor.patch", "-e CPU_IDLE_GOV_NAP"),
     "governor-reflex": ("misc/reflex-governor.patch", "-m CPU_FREQ_GOV_REFLEX"),
@@ -409,7 +434,10 @@ def audit_hidden_patch_inventory(target_version, patch_paths, lts=False):
     errors = []
 
     for feature, details in VALIDATED_HIDDEN_FEATURES.get(clean_target, {}).items():
-        path = f"{series}/{details['path']}"
+        if "commits" in details:
+            # Linux commit inputs are checked by audit_feature_inventory and Manifest.
+            continue
+        path = f"{details.get('series', series)}/{details['path']}"
         if path not in patch_paths:
             errors.append(f"{feature}: validated hidden patch disappeared: {path}")
 
@@ -469,7 +497,14 @@ def audit_feature_inventory(content, target_version, upstream_versions, lts=Fals
             continue
         if lts and clean_version_helper(target_version) not in VALIDATED_HIDDEN_FEATURES:
             continue
-        for pattern in AUDIT_PATTERNS[feature]:
+        details = VALIDATED_HIDDEN_FEATURES.get(clean_version_helper(target_version), {}).get(feature, {})
+        patterns = list(AUDIT_PATTERNS[feature])
+        patterns.extend(f"https://github.com/CachyOS/linux/commit/{commit}.patch"
+                        for commit in details.get("commits", ()))
+        if "series" in details:
+            patterns.extend((f"/${{CACHYOS_PATCHES_COMMIT}}/{details['series']}",
+                             f"cachyos-kernel-patches-${{CACHYOS_PATCHES_COMMIT}}-{details['series']}"))
+        for pattern in patterns:
             if pattern not in content:
                 errors.append(f"{feature}: missing wiring pattern: {pattern}")
 

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OPTIONAL_VARIANT_FLAGS = (
     "bmq", "bmq-lfbmq", "deckify", "bore-dev", "pds", "muqss",
     "cachyos-hardened", "server", "aufs", "handheld", "acpi-call", "poc-selector",
-    "governor-nap", "governor-reflex", "clang-polly", "adios-default", "hda-aw88399",
+    "governor-nap", "governor-reflex", "clang-polly", "sched-ext-peek", "adios-default", "hda-aw88399",
 )
 
 

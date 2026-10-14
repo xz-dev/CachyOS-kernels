@@ -79,6 +79,29 @@ def check(ebuild: Path, tree: Path, overrides: str) -> None:
         if flag in enabled:
             expect(symbol, 'y' if flag == 'governor-nap' else 'm')
             exists(path)
+    if 'governor-reflex' in enabled:
+        expect('CPU_FREQ_GOV_SCHEDUTIL', 'y')
+        if '-7.2.' in ebuild.name:
+            assert 'cpufreq_driver_adjust_perf(rfx_pol->policy,' in (tree / 'drivers/cpufreq/cpufreq_reflex.c').read_text()
+    if 'sched-ext-peek' in available:
+        ext = (tree / 'kernel/sched/ext.c').read_text()
+        if 'sched-ext-peek' in enabled:
+            expect('SCHED_CLASS_EXT', 'y')
+            for text in ('scx_bpf_dsq_peek(u64 dsq_id)',
+                         'BTF_ID_FLAGS(func, scx_bpf_dsq_peek, KF_RCU_PROTECTED | KF_RET_NULL)',
+                         'rcu_assign_pointer(dsq->first_task, first_task)',
+                         'was_empty && !(dsq->id & SCX_DSQ_FLAG_BUILTIN)',
+                         'ret = check_hotplug_seq(sch, ops);'):
+                assert text in ext, text
+            common = (tree / 'tools/sched_ext/include/scx/common.bpf.h').read_text()
+            assert common.index('scx_bpf_dsq_peek(u64 dsq_id) __ksym __weak') < common.index('#include "compat.bpf.h"')
+            compat = (tree / 'tools/sched_ext/include/scx/compat.bpf.h').read_text()
+            assert 'bpf_cpumask_populate(struct bpf_cpumask *dst' in compat
+            assert compat.index('#define __COMPAT_bpf_cpumask_populate') < compat.index('__COMPAT_scx_bpf_dsq_peek') < compat.index('__COMPAT_is_enq_cpu_selected')
+            exists('tools/testing/selftests/sched_ext/peek_dsq.bpf.c')
+            exists('tools/testing/selftests/sched_ext/peek_dsq.c')
+        else:
+            assert 'scx_bpf_dsq_peek(u64 dsq_id)' not in ext
     if enabled & {'deckify', 'acpi-call'}:
         expect('ACPI_CALL', 'y' if 'deckify' in enabled else 'm')
         exists('drivers/platform/x86/acpi_call.c')

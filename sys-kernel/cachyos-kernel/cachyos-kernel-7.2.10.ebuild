@@ -25,6 +25,8 @@ GENPATCHES_VER=11
 ZFS_COMMIT="71a9f9578616a90c3c14bb59629fb4d31bfd68d1"
 CACHYOS_SERIES="$(ver_cut 1-2)"
 CACHYOS_PATCH_URI="https://github.com/CachyOS/kernel-patches/raw/${CACHYOS_PATCHES_COMMIT}/${CACHYOS_SERIES}"
+CACHYOS_LTS_PATCH_URI="https://github.com/CachyOS/kernel-patches/raw/${CACHYOS_PATCHES_COMMIT}/6.18"
+CACHYOS_LTS_PATCH_PREFIX="cachyos-kernel-patches-${CACHYOS_PATCHES_COMMIT}-6.18"
 CACHYOS_CONFIG_URI="https://github.com/CachyOS/linux-cachyos/raw/${CACHYOS_CONFIGS_COMMIT}"
 CACHYOS_HARDENED_CONFIG_URI="https://github.com/CachyOS/linux-cachyos/raw/${CACHYOS_HARDENED_CONFIG_COMMIT}"
 CACHYOS_PATCH_PREFIX="cachyos-kernel-patches-${CACHYOS_PATCHES_COMMIT}-${CACHYOS_SERIES}"
@@ -104,6 +106,18 @@ SRC_URI="
 		${CACHYOS_PATCH_URI}/misc/0001-aufs-7.2-merge-v20260914.patch
 			-> ${CACHYOS_PATCH_PREFIX}-aufs.patch
 	)
+	governor-nap? (
+		${CACHYOS_LTS_PATCH_URI}/misc/nap-governor.patch
+			-> ${CACHYOS_LTS_PATCH_PREFIX}-nap-governor.patch
+	)
+	governor-reflex? (
+		${CACHYOS_LTS_PATCH_URI}/misc/reflex-governor.patch
+			-> ${CACHYOS_LTS_PATCH_PREFIX}-reflex-governor.patch
+	)
+	clang-polly? (
+		${CACHYOS_LTS_PATCH_URI}/misc/0001-clang-polly.patch
+			-> ${CACHYOS_LTS_PATCH_PREFIX}-clang-polly.patch
+	)
 	kernel-builtin-zfs? (
 		https://github.com/cachyos/zfs/archive/${ZFS_COMMIT}.tar.gz
 			-> zfs-${ZFS_COMMIT}.tar.gz
@@ -115,6 +129,7 @@ LICENSE="GPL-3"
 KEYWORDS="~amd64"
 IUSE="
 	+bore bore-dev bmq pds muqss rt rt-bore eevdf
+	clang-polly governor-nap governor-reflex
 	server deckify handheld acpi-call aufs kcfi cachyos-hardened
 	+clang +autofdo +propeller
 	+llvm-lto-thin llvm-lto-full llvm-lto-thin-dist llvm-lto-none
@@ -138,12 +153,15 @@ IUSE="
 #   the remaining genpatch-colliding hunk.
 # - PRJC needs the cpuset preimage rollback and a context rebase; MuQSS
 #   already matches the cpuset fix and must not receive that rollback.
+# Reflex requires the fair/SCX utilization helpers, not PRJC/MuQSS stubs.
 REQUIRED_USE="
 	^^ ( bore bore-dev bmq pds muqss rt rt-bore eevdf cachyos-hardened )
+	governor-reflex? ( !bmq !pds !muqss )
 	adios-default? ( adios )
 	cachyos-hardened? ( !autofdo !propeller llvm-lto-none )
 	deckify? ( bore )
 	propeller? ( clang !llvm-lto-full !llvm-lto-none )
+	clang-polly? ( clang !llvm_slot_17 !llvm_slot_18 !llvm_slot_19 )
 	clang? ( ${LLVM_REQUIRED_USE} )
 	autofdo? ( || ( llvm-lto-thin llvm-lto-full llvm-lto-thin-dist ) )
 	kernel-builtin-zfs? ( !kcfi )
@@ -171,6 +189,12 @@ BDEPEND="
 			llvm-core/clang:${LLVM_SLOT}
 			llvm-core/lld:${LLVM_SLOT}
 		')
+	)
+	clang-polly? (
+		llvm_slot_20? ( llvm-core/polly:20 )
+		llvm_slot_21? ( llvm-core/polly:21 )
+		llvm_slot_22? ( llvm-core/polly:22 )
+		llvm_slot_23? ( llvm-core/polly:23 )
 	)
 	dev-util/pahole
 "
@@ -216,6 +240,10 @@ pkg_setup() {
 		export OBJDUMP="${llvm_bindir}/llvm-objdump"
 		export READELF="${llvm_bindir}/llvm-readelf"
 		export STRIP="${llvm_bindir}/llvm-strip"
+		if use clang-polly; then
+			# The upstream patch loads LLVMPolly.so by name.
+			export LD_LIBRARY_PATH="$(get_llvm_prefix -b)/$(get_libdir)${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+		fi
 	else
 		tc-export CC CXX
 	fi
@@ -341,6 +369,15 @@ src_prepare() {
 		eapply "${patches_prefix}-aufs.patch"
 	fi
 
+	local lts_patches_prefix="${DISTDIR}/${CACHYOS_LTS_PATCH_PREFIX}"
+	use governor-nap && eapply --fuzz=0 -- "${lts_patches_prefix}-nap-governor.patch"
+	if use governor-reflex; then
+		cp "${lts_patches_prefix}-reflex-governor.patch" "${T}/reflex.patch" || die
+		eapply --fuzz=0 -d "${T}" -- "${FILESDIR}/7.2.10-reflex-rebase.patch"
+		eapply --fuzz=0 -- "${T}/reflex.patch"
+	fi
+	use clang-polly && eapply --fuzz=0 -- "${lts_patches_prefix}-clang-polly.patch"
+
 	if use deckify; then
 		cp "${configs_prefix}-deckify-config" .config || die
 	elif use cachyos-hardened; then
@@ -410,6 +447,16 @@ src_prepare() {
 			-m ZOTAC_ZONE_PLATFORM \
 			-m EXTCON_STEAMDECK \
 			-m HID_MSI || die
+	fi
+
+	if use clang-polly; then
+		scripts/config -e POLLY_CLANG || die
+	fi
+	if use governor-nap; then
+		scripts/config -e CPU_IDLE_GOV_NAP || die
+	fi
+	if use governor-reflex; then
+		scripts/config -e CPU_FREQ_GOV_SCHEDUTIL -m CPU_FREQ_GOV_REFLEX || die
 	fi
 
 	# Keep existing upstream driver defaults; provide independent opt-outs.

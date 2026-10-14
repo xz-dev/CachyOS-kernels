@@ -36,16 +36,23 @@ for ebuild in ebuilds:
     required = re.search(r'^REQUIRED_USE="([^"]*)"', source, re.MULTILINE).group(1)
     version = ebuild.stem.removeprefix("cachyos-sources-")
     producer_cases = usable_cases(ROOT, version, "glibc")
+    if version == "7.2.10":
+        assert "governor-nap governor-reflex" in producer_cases
+        assert "clang-polly" in producer_cases
+    if version == "6.18.55":
+        assert "sched-ext-peek" in producer_cases
     assert producer_cases == [case for case in cases if not any(
         flag in case.split() and flag not in available for flag in OPTIONAL_VARIANT_FLAGS)]
     if "bore-dev" in available:
         for extra in ({"bore-dev"}, {"adios-default", "-adios"}):
             conflict = (defaults | (extra - {"-adios"})) - ({"adios"} if "-adios" in extra else set())
             assert not check_required_use(required, conflict, available.__contains__, eapi="8"), extra
-        if "poc-selector" in available:
-            for feature in ("poc-selector", "governor-reflex"):
-                conflict = (defaults - {"eevdf"}) | {"bmq", feature}
-                assert not check_required_use(required, conflict, available.__contains__, eapi="8"), feature
+        for feature in ("poc-selector", "governor-reflex", "sched-ext-peek"):
+            if feature not in available:
+                continue
+            for scheduler in {"bmq", "pds", "bmq-lfbmq", "muqss"} & available:
+                conflict = (defaults - {"eevdf", "bore"}) | {scheduler, feature}
+                assert not check_required_use(required, conflict, available.__contains__, eapi="8"), (feature, scheduler)
 
     for case in cases:
         flags = case.split()

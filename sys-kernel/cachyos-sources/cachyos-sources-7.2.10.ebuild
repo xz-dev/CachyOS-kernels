@@ -31,6 +31,8 @@ ZFS_COMMIT="71a9f9578616a90c3c14bb59629fb4d31bfd68d1"
 CKV="$(ver_cut 1-3)"
 CACHYOS_SERIES="$(ver_cut 1-2)"
 CACHYOS_PATCH_URI="https://github.com/CachyOS/kernel-patches/raw/${CACHYOS_PATCHES_COMMIT}/${CACHYOS_SERIES}"
+CACHYOS_LTS_PATCH_URI="https://github.com/CachyOS/kernel-patches/raw/${CACHYOS_PATCHES_COMMIT}/6.18"
+CACHYOS_LTS_PATCH_PREFIX="cachyos-kernel-patches-${CACHYOS_PATCHES_COMMIT}-6.18"
 CACHYOS_CONFIG_URI="https://github.com/CachyOS/linux-cachyos/raw/${CACHYOS_CONFIGS_COMMIT}"
 CACHYOS_HARDENED_CONFIG_URI="https://github.com/CachyOS/linux-cachyos/raw/${CACHYOS_HARDENED_CONFIG_COMMIT}"
 CACHYOS_PATCH_PREFIX="cachyos-kernel-patches-${CACHYOS_PATCHES_COMMIT}-${CACHYOS_SERIES}"
@@ -123,6 +125,18 @@ SRC_URI="
 		${CACHYOS_PATCH_URI}/misc/0001-aufs-7.2-merge-v20260914.patch
 			-> ${CACHYOS_PATCH_PREFIX}-aufs.patch
 	)
+	governor-nap? (
+		${CACHYOS_LTS_PATCH_URI}/misc/nap-governor.patch
+			-> ${CACHYOS_LTS_PATCH_PREFIX}-nap-governor.patch
+	)
+	governor-reflex? (
+		${CACHYOS_LTS_PATCH_URI}/misc/reflex-governor.patch
+			-> ${CACHYOS_LTS_PATCH_PREFIX}-reflex-governor.patch
+	)
+	clang-polly? (
+		${CACHYOS_LTS_PATCH_URI}/misc/0001-clang-polly.patch
+			-> ${CACHYOS_LTS_PATCH_PREFIX}-clang-polly.patch
+	)
 	kernel-builtin-zfs? (
 		https://github.com/cachyos/zfs/archive/${ZFS_COMMIT}.tar.gz
 			-> zfs-${ZFS_COMMIT}.tar.gz
@@ -133,6 +147,7 @@ LICENSE+=" kernel-builtin-zfs? ( BSD-2 CDDL GPL-3 MIT )"
 KEYWORDS="~amd64"
 IUSE="
 	+bore bore-dev bmq pds muqss rt rt-bore eevdf
+	clang-polly governor-nap governor-reflex
 	server deckify handheld acpi-call aufs kcfi cachyos-hardened
 	+autofdo +propeller
 	+llvm-lto-thin llvm-lto-full llvm-lto-thin-dist llvm-lto-none
@@ -156,8 +171,10 @@ IUSE="
 #   the remaining genpatch-colliding hunk.
 # - PRJC needs the cpuset preimage rollback and a context rebase; MuQSS
 #   already matches the cpuset fix and must not receive that rollback.
+# Reflex requires the fair/SCX utilization helpers, not PRJC/MuQSS stubs.
 REQUIRED_USE="
 	^^ ( bore bore-dev bmq pds muqss rt rt-bore eevdf cachyos-hardened )
+	governor-reflex? ( !bmq !pds !muqss )
 	adios-default? ( adios )
 	cachyos-hardened? ( llvm-lto-none )
 	deckify? ( bore )
@@ -174,6 +191,7 @@ REQUIRED_USE="
 "
 
 RDEPEND+="
+	clang-polly? ( llvm-core/clang llvm-core/polly )
 	dev-util/pahole
 	autofdo? ( dev-util/perf[libpfm] )
 	!llvm-lto-none? (
@@ -310,6 +328,15 @@ src_prepare() {
 		eapply "${patches_prefix}-aufs.patch"
 	fi
 
+	local lts_patches_prefix="${DISTDIR}/${CACHYOS_LTS_PATCH_PREFIX}"
+	use governor-nap && eapply --fuzz=0 -- "${lts_patches_prefix}-nap-governor.patch"
+	if use governor-reflex; then
+		cp "${lts_patches_prefix}-reflex-governor.patch" "${T}/reflex.patch" || die
+		eapply --fuzz=0 -d "${T}" -- "${FILESDIR}/7.2.10-reflex-rebase.patch"
+		eapply --fuzz=0 -- "${T}/reflex.patch"
+	fi
+	use clang-polly && eapply --fuzz=0 -- "${lts_patches_prefix}-clang-polly.patch"
+
 	if use deckify; then
 		cp "${configs_prefix}-deckify-config" .config || die
 	elif use cachyos-hardened; then
@@ -318,7 +345,7 @@ src_prepare() {
 		cp "${configs_prefix}-config" .config || die
 	fi
 
-	if use kcfi || use propeller || ! use llvm-lto-none; then
+	if use kcfi || use clang-polly || use propeller || ! use llvm-lto-none; then
 		eapply "${patches_prefix}-dkms-clang.patch"
 	fi
 
@@ -379,6 +406,16 @@ src_prepare() {
 			-m ZOTAC_ZONE_PLATFORM \
 			-m EXTCON_STEAMDECK \
 			-m HID_MSI || die
+	fi
+
+	if use clang-polly; then
+		scripts/config -e POLLY_CLANG || die
+	fi
+	if use governor-nap; then
+		scripts/config -e CPU_IDLE_GOV_NAP || die
+	fi
+	if use governor-reflex; then
+		scripts/config -e CPU_FREQ_GOV_SCHEDUTIL -m CPU_FREQ_GOV_REFLEX || die
 	fi
 
 	# Keep existing upstream driver defaults; provide independent opt-outs.

@@ -19,6 +19,7 @@
     <flag name="rt">EEVDF scheduler with realtime patches for low-latency applications</flag>
     <flag name="rt-bore">BORE scheduler with realtime patches for low-latency applications</flag>
     <flag name="eevdf">Linux EEVDF scheduler; includes the CachyOS POC idle CPU selector on mainline kernels</flag>
+    <flag name="sched-ext-peek">Add the experimental sched_ext lockless DSQ peek API and attach fixes; ordinary sched_ext support does not require this flag</flag>
     <flag name="poc-selector">Enable the CachyOS POC idle CPU selector on LTS kernels with a fair-class scheduler</flag>
     <flag name="muqss">MuQSS scheduler patchset carried in CachyOS kernel-patches</flag>
     <flag name="server">Disable CONFIG_CACHY kernel tweaks; scheduler and tuning options remain independently selectable</flag>

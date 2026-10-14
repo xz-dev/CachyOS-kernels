@@ -5,6 +5,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'tests/test-source-features.py'
+      - 'tests/test-optional-feature-inventory.py'
       - 'sys-kernel/cachyos-sources/**'
       - 'sys-kernel/cachyos-kernel/**'
       - 'sys-kernel/cachyos-kernel-bin/**'
@@ -23,6 +24,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'tests/test-source-features.py'
+      - 'tests/test-optional-feature-inventory.py'
       - 'sys-kernel/cachyos-sources/**'
       - 'sys-kernel/cachyos-kernel/**'
       - 'sys-kernel/cachyos-kernel-bin/**'
@@ -54,6 +56,9 @@ jobs:
 
     - name: Validate CI USE matrix against ebuild requirements
       run: python3 tests/test-ci-use-matrix.py
+
+    - name: Validate optional feature inventory and conflicts
+      run: python3 tests/test-optional-feature-inventory.py
 
     - name: Validate binary dependency lifecycle
       run: python3 tests/test-ci-binpkg-lifecycle.py
@@ -257,7 +262,9 @@ jobs:
           - "deckify acpi-call"
           - "aufs"
           - "governor-nap governor-reflex poc-selector acpi-call"
+          - "governor-nap governor-reflex"
           - "clang-polly"
+          - "sched-ext-peek"
           - "acpi-call"
           - "handheld"
           - "server"
@@ -386,7 +393,7 @@ jobs:
         # case when its positive selector is absent instead of creating an
         # invalid fallback build.
         read -r -a USE_FLAG_WORDS <<< "${USE_FLAGS}"
-        for OPTIONAL_FLAG in bmq bmq-lfbmq deckify bore-dev pds muqss cachyos-hardened server aufs handheld acpi-call poc-selector governor-nap governor-reflex clang-polly adios-default hda-aw88399; do
+        for OPTIONAL_FLAG in bmq bmq-lfbmq deckify bore-dev pds muqss cachyos-hardened server aufs handheld acpi-call poc-selector governor-nap governor-reflex clang-polly sched-ext-peek adios-default hda-aw88399; do
           if printf '%s\n' "${USE_FLAG_WORDS[@]}" | grep -Fxq "${OPTIONAL_FLAG}" &&
              ! grep -Eq "(^|[[:space:]])\\+?${OPTIONAL_FLAG}([[:space:]]|$)" "${EBUILD_PATH}"; then
             echo "::notice::Skipping ${USE_FLAGS}: unsupported by cachyos-sources-${{ matrix.version }}"

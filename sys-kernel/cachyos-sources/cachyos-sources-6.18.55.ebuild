@@ -124,6 +124,16 @@ SRC_URI="
 	)
 	${CACHYOS_PATCH_URI}/misc/dkms-clang.patch
 		-> ${CACHYOS_PATCH_PREFIX}-dkms-clang.patch
+	sched-ext-peek? (
+		https://github.com/CachyOS/linux/commit/b99db259aa4e75b3051e0b4ea464c08700829d3b.patch
+			-> cachyos-sched-ext-b99db259aa4e75b3051e0b4ea464c08700829d3b.patch
+		https://github.com/CachyOS/linux/commit/83659f4458c702385efc657ff678cdcec74d7342.patch
+			-> cachyos-sched-ext-83659f4458c702385efc657ff678cdcec74d7342.patch
+		https://github.com/CachyOS/linux/commit/2f15c2b511c5322cefafbcd49ab496eeaed9c045.patch
+			-> cachyos-sched-ext-2f15c2b511c5322cefafbcd49ab496eeaed9c045.patch
+		https://github.com/CachyOS/linux/commit/f853a289756a2d3c6addd17dbe40c24b95082ad0.patch
+			-> cachyos-sched-ext-f853a289756a2d3c6addd17dbe40c24b95082ad0.patch
+	)
 	kernel-builtin-zfs? (
 		https://github.com/cachyos/zfs/archive/${ZFS_COMMIT}.tar.gz
 			-> zfs-${ZFS_COMMIT}.tar.gz
@@ -134,6 +144,7 @@ LICENSE+=" kernel-builtin-zfs? ( BSD-2 CDDL GPL-3 MIT )"
 KEYWORDS="~amd64"
 IUSE="
 	bore bore-dev bmq pds bmq-lfbmq cachyos-hardened rt rt-bore +eevdf
+	sched-ext-peek
 	kcfi server clang-polly handheld acpi-call aufs poc-selector governor-nap governor-reflex
 	autofdo propeller
 	llvm-lto-thin llvm-lto-full llvm-lto-thin-dist +llvm-lto-none
@@ -155,6 +166,7 @@ IUSE="
 # LTS keeps EEVDF as its default; optional patches never affect that path.
 REQUIRED_USE="
 	^^ ( bore bore-dev bmq pds bmq-lfbmq cachyos-hardened rt rt-bore eevdf )
+	sched-ext-peek? ( !bmq !pds !bmq-lfbmq )
 	poc-selector? ( !bmq !pds !bmq-lfbmq )
 	governor-reflex? ( !bmq !pds !bmq-lfbmq )
 	adios-default? ( adios )
@@ -259,6 +271,15 @@ src_prepare() {
 		eapply --fuzz=0 -- "${T}/${prjc}.patch"
 	fi
 
+	if use sched-ext-peek; then
+		eapply --fuzz=0 -- "${DISTDIR}/cachyos-sched-ext-b99db259aa4e75b3051e0b4ea464c08700829d3b.patch"
+		cp "${DISTDIR}/cachyos-sched-ext-83659f4458c702385efc657ff678cdcec74d7342.patch" "${T}/peek.patch" || die
+		eapply --fuzz=0 -d "${T}" -- "${FILESDIR}/6.18.55-sched-ext-peek-rebase.patch"
+		eapply --fuzz=0 -- "${T}/peek.patch"
+		eapply --fuzz=0 -- "${DISTDIR}/cachyos-sched-ext-2f15c2b511c5322cefafbcd49ab496eeaed9c045.patch"
+		eapply --fuzz=0 -- "${DISTDIR}/cachyos-sched-ext-f853a289756a2d3c6addd17dbe40c24b95082ad0.patch"
+	fi
+
 	if use handheld; then
 		cp "${patches_prefix}-handheld.patch" "${T}/handheld.patch" || die
 		eapply --fuzz=0 -d "${T}" -- "${FILESDIR}/cachyos-sources-6.18.55-handheld-rebase.patch"
@@ -320,6 +341,9 @@ src_prepare() {
 			-m LEDS_STEAMDECK -m SND_SOC_AW87XXX -m HID_LENOVO_GO \
 			-m HID_LENOVO_GO_S -m HID_MSI_CLAW -m ZOTAC_ZONE_HID \
 			-m ZOTAC_ZONE_PLATFORM || die
+	fi
+	if use sched-ext-peek; then
+		scripts/config -e SCHED_CLASS_EXT || die
 	fi
 	if use clang-polly; then
 		scripts/config -e POLLY_CLANG || die
