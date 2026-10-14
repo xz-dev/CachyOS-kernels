@@ -60,7 +60,7 @@
     <flag name="llvm-lto-none">Disable LLVM link-time optimization</flag>
 
     <!-- ZFS support -->
-    <flag name="kernel-builtin-zfs">Build ZFS module directly into the kernel (not recommended, use sys-fs/zfs-kmod instead)</flag>
+    <flag name="kernel-builtin-zfs">Stage pinned ZFS sources and a manual build helper; does not build or install ZFS modules</flag>
 
     <!-- Timer frequency -->
     <flag name="hz_ticks_100">Set kernel timer frequency to 100 Hz (server/battery optimized)</flag>
